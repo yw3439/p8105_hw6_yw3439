@@ -15,10 +15,11 @@ library(tidyverse)
 library(dplyr)
 library(modelr)
 library(purrr)
+library(patchwork)
 ```
 
 # Problem.1 Homicide Dataset
-
+### Tidy dataset
 ```{r}
 homicide = read_csv("homicide-data.csv") %>%
   mutate(
@@ -28,20 +29,22 @@ homicide = read_csv("homicide-data.csv") %>%
   filter(city !=  "Dallas" & city != "Phoenix" & city != "Kansas city" & city != "Tulsa") %>%
   filter(victim_race == "White" | victim_race == "Black") %>%
   filter(!is.na(victim_age))
-
 ```
 
+### Logistic regression for Baltimore
 ```{r}
 
 
 
+
 ```
 
 
+
+
 # Problem 2 Birthweight
-
-```{r, check for missing value}
-
+### Tidy data and Check missing values
+```{r}
 birthweight = read_csv("birthweight.csv") %>%
   janitor::clean_names() %>%
   mutate(
@@ -56,12 +59,9 @@ birthweight = birthweight[!apply(is.na(birthweight[1:length(birthweight)]), 1, a
 
    After checking all variables within the birthweight dataset, variables that are appropriate for turning into factor are all changed into the factor type. And the dataset does not contain any missing values.
 
-```{r, include=FALSE}
-step(lm(data = birthweight, bwt ~.), direction = "both")
-```
-  By using the stepwise algorithm, the optimal model would be chosen by AIC.
-  
+### Build optimal model
 ```{r}
+step(lm(data = birthweight, bwt ~.), direction = "both")
 
 optimal_mod = birthweight %>%
   select(-frace, -malform, -menarche, - momage, - pnumlbw, - pnumsga, -wtgain) %>%
@@ -83,6 +83,7 @@ birthweight %>%
 
 ```
 
+### Cross validate three models
 ```{r}
 
 blength_gaweeks = birthweight %>%
@@ -125,6 +126,94 @@ cv %>%
   ggplot(aes(x = model, y = rmse)) +
   geom_violin()
 ```
+
+
+# Problem 3. Central Park Weather
+```{r}
+weather_df = 
+  rnoaa::meteo_pull_monitors(
+    c("USW00094728"),
+    var = c("PRCP", "TMIN", "TMAX"), 
+    date_min = "2017-01-01",
+    date_max = "2017-12-31") %>%
+  mutate(
+    name = recode(id, USW00094728 = "CentralPark_NY"),
+    tmin = tmin / 10,
+    tmax = tmax / 10) %>%
+  select(name, id, everything())
+```
+
+### Generate values of r-square and log-estimate
+```{r}
+
+weather_strap = weather_df %>%
+  modelr::bootstrap(n = 5000) %>%
+  mutate(
+    models = map(strap, ~ lm(tmax ~ tmin, data = .)),
+    r = map(models, broom::glance),
+    conf_int = map(models, broom::tidy)
+  ) %>%
+  unnest(r, conf_int) %>%
+  select(r.squared, estimate, term) %>%
+  pivot_wider(
+    names_from = term,
+    values_from = estimate
+  ) %>%
+  janitor::clean_names() %>%
+  mutate(
+    log_estimate = log(intercept * tmin)
+  )
+
+r_plot = weather_strap %>%
+  ggplot(aes(x = r_squared)) +
+  geom_density(color = "blue") +
+  labs(
+    title = "Distribution of R-squared Values",
+    x = "R-squared Values",
+    y = "Density")
+  
+
+estimate_plot = weather_strap %>%
+  ggplot(aes(x = log_estimate))  +
+  geom_density(color = "red") +
+  labs(
+    title = "Distribution of R-squared Values",
+    x = "Log of (intercept*coefficient)",
+    y = "Density"
+  )
+
+r_plot + estimate_plot
+
+```
+
+### Generate confidence interval
+```{r}
+
+conf_int = weather_strap %>%
+  pivot_longer(
+    intercept : tmin,
+    names_to = "term",
+    values_to = "estimate"
+  ) %>%
+  select(-estimate) %>%
+  group_by(term) %>%
+  summarize(
+    lwrci_r = quantile(r_squared, 0.025),
+    uprci_r = quantile(r_squared, 0.975),
+    lwrci_est = quantile(log_estimate, 0.025),
+    uprci_est = quantile(log_estimate, 0.975)
+  )
+
+knitr::kable(conf_int)
+
+```
+
+
+
+
+
+
+
 
 
 

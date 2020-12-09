@@ -1,0 +1,64 @@
+---
+title: "hw_6"
+author: "Qetsiyah Wang"
+date: "12/9/2020"
+output: github_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE,
+                      message = FALSE,
+                      warning = FALSE,
+                      fig.height = 6, fig.width = 8)
+
+library(tidyverse)
+library(dplyr)
+```
+
+# Problem.1 Homicide Dataset
+
+```{r}
+
+
+homicide = read_csv("homicide-data.csv") %>%
+  mutate(
+    city_state = paste(city,",", state),
+    resolved = as.numeric(disposition == "Closed by arrest")
+  ) %>%
+  filter(city !=  "Dallas" & city != "Phoenix" & city != "Kansas city" & city != "Tulsa") %>%
+  filter(victim_race == "White" | victim_race == "Black") %>%
+  mutate(
+    victim_sex = factor(victim_sex),
+    victim_race = fct_relevel(),
+    victim_age = as.numeric(victim_age)
+  ) %>%
+  filter(!is.na(victim_age))
+
+baltimore_resolved = homicide %>%
+  filter(city == "Baltimore") %>%
+  glm(resolved ~ victim_age + victim_sex + victim_race, family = binomial(), data = .) %>%
+  broom::tidy() %>%
+  group_by(term, estimate) %>%
+  summarise(
+   conf.low = quantile(exp(estimate), 0.025),
+   conf.high = quantile(exp(estimate), 0.975)
+     ) %>%
+  mutate(
+    OR = exp(estimate)
+  ) %>%
+  select(OR, conf.low, conf.high) %>%
+  filter(term == "victim_raceBlack")
+
+knitr::kable(baltimore_resolved)
+```
+
+```{r}
+
+
+
+```
+
+
+
+
+

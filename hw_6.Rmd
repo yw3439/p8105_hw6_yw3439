@@ -105,7 +105,9 @@ cv = cv %>%
     head_len_sex_model = map(train, ~ head_len_sex)
   ) %>%
   mutate(
-    rmse
+    rmse_opt_mod = map2_dbl(optimal_model, test, ~ rmse(model = .x, data = .y)),
+    rmse_len_ga_mod = map2_dbl(blength_gaweeks_model, test, ~ rmse(model = .x, data = .y)),
+    rmse_head_len_sex_mod = map2_dbl(head_len_sex_model, test, ~ rmse(model = .x, data = .y))
   )
 
 ```

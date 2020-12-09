@@ -9,7 +9,7 @@ output: github_document
 knitr::opts_chunk$set(echo = TRUE,
                       message = FALSE,
                       warning = FALSE,
-                      fig.height = 6, fig.width = 8)
+                      fig.height = 8, fig.width = 10)
 
 library(tidyverse)
 library(dplyr)
@@ -24,23 +24,84 @@ library(patchwork)
 homicide = read_csv("homicide-data.csv") %>%
   mutate(
     city_state = paste(city,",", state),
-    resolved = as.numeric(disposition == "Closed by arrest")
+    resolved = as.numeric(disposition == "Closed by arrest"),
+    victim_age = as.numeric(victim_age),
+    victim_sex = as.factor(victim_sex)
   ) %>%
   filter(city !=  "Dallas" & city != "Phoenix" & city != "Kansas city" & city != "Tulsa") %>%
   filter(victim_race == "White" | victim_race == "Black") %>%
-  filter(!is.na(victim_age))
+  mutate(
+    victim_race = as.factor(victim_race),
+    resolved = as.factor(resolved)) %>%
+  filter(!is.na(victim_age)) %>%
+  select(city_state, victim_race, victim_age, victim_sex, resolved)
 ```
 
 ### Logistic regression for Baltimore
 ```{r}
 
+baltimore = homicide %>%
+  filter(city_state == "Baltimore , MD") %>%
+  glm(resolved ~ victim_age + victim_race + victim_sex, data = ., family = "binomial")
 
+baltimore_or = baltimore %>%
+  broom::tidy() %>%
+  mutate(
+    or = exp(estimate),
+    lwr_confint = exp(confint(baltimore)[1:4]),
+    upr_confint = exp(confint(baltimore)[5:8])
+  ) %>%
+  select(term, or, lwr_confint, upr_confint) %>%
+  filter(str_detect(term, "White"))
 
+knitr::kable(baltimore_or)
+```
+
+Odds ratio for Baltimore comparing non-white victims to white victims are shown in the table above.
+
+```{r}
+
+odds_ratio = homicide %>%
+  nest(data = - city_state) %>%
+  mutate(
+    models = map(data,
+                 ~ glm(resolved ~ victim_age + victim_race + victim_sex, data = .x, family = "binomial")),
+    results = map(models, broom::tidy) ) %>%
+  select(-models, - data) %>%
+  unnest(results) %>%
+  filter(str_detect(term, "White"))
+
+sample_size = count(homicide, city_state)
+  
+odds_ratio = odds_ratio %>%
+  mutate(
+    n = pull(sample_size, n),
+    or = exp(estimate),
+    lwr = exp(estimate - 1.96*std.error),
+    upr = exp(estimate + 1.96*std.error)
+  ) %>%
+  select(city_state, or, lwr, upr) %>%
+  mutate(city_state = fct_reorder(city_state, or)) %>%
+  arrange(-or)
+
+knitr::kable(odds_ratio)
+```
+
+```{r}
+
+odds_ratio %>%
+  ggplot(aes(x = city_state, y = or, ymin = lwr, ymax = upr)) +
+  geom_errorbar(width = 0.5) +
+  coord_flip() +
+  labs(
+    title = "Estimated Odds Ratio of Resolved Homicides for Each City-State",
+    x = "Estimated Odds Ratio of Resolved Homicides",
+    y = "City and State"
+  )
 
 ```
 
-
-
+  Shown in th plot, comparing white group and no white group with fixing all other variables, homicides in which the victim is white are substantially more likely to be resolved comparing with those in which the victim is black, especially in Boston with odds ratio of resolved homicides `r pull(odds_ratio, or)[1]`
 
 # Problem 2 Birthweight
 ### Tidy data and Check missing values
@@ -57,14 +118,15 @@ birthweight = read_csv("birthweight.csv") %>%
 birthweight = birthweight[!apply(is.na(birthweight[1:length(birthweight)]), 1, any),]
 ```
 
-   After checking all variables within the birthweight dataset, variables that are appropriate for turning into factor are all changed into the factor type. And the dataset does not contain any missing values.
-
 ### Build optimal model
 ```{r}
-step(lm(data = birthweight, bwt ~.), direction = "both")
 
-optimal_mod = birthweight %>%
-  select(-frace, -malform, -menarche, - momage, - pnumlbw, - pnumsga, -wtgain) %>%
+aic_birthweight = step(lm(data = birthweight, bwt ~.), direction = "backward")
+
+optimal_var = birthweight %>%
+  select(-frace, -malform, -menarche, - momage, - pnumlbw, - pnumsga, -wtgain)
+
+optimal_mod = optimal_var %>%
   lm(bwt ~ babysex + bhead + blength + delwt + fincome + gaweeks + mheight + mrace + 
        parity + ppwt + smoken, data = .)
 
@@ -83,9 +145,10 @@ birthweight %>%
 
 ```
 
+  By using the Stepwise regression, the optimal regression model was chosen with `r colnames(optimal_var)` with respect to baby's birthweight. Shown in th plot, major residuals versus fitted values are focused around 0, meaning that the normal distribution of error terms can be validated for further establishment of the regression model. 
+  
 ### Cross validate three models
 ```{r}
-
 blength_gaweeks = birthweight %>%
   select(bwt, blength, gaweeks) %>%
   lm(bwt ~ blength, gaweeks, data = .)
@@ -94,7 +157,7 @@ head_len_sex = birthweight %>%
   select(bwt, bhead, blength, babysex) %>%
   lm(bwt ~ bhead +blength + babysex + bhead*blength*babysex, data = .)
 
-cv = crossv_mc(birthweight, 100) %>%
+cv = crossv_mc(birthweight, 4000) %>%
   mutate(
     train = map(train, as_tibble),
     test = map(test, as_tibble)

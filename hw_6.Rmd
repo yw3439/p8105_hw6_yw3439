@@ -13,13 +13,12 @@ knitr::opts_chunk$set(echo = TRUE,
 
 library(tidyverse)
 library(dplyr)
+library(modelr)
 ```
 
 # Problem.1 Homicide Dataset
 
 ```{r}
-
-
 homicide = read_csv("homicide-data.csv") %>%
   mutate(
     city_state = paste(city,",", state),
@@ -27,29 +26,8 @@ homicide = read_csv("homicide-data.csv") %>%
   ) %>%
   filter(city !=  "Dallas" & city != "Phoenix" & city != "Kansas city" & city != "Tulsa") %>%
   filter(victim_race == "White" | victim_race == "Black") %>%
-  mutate(
-    victim_sex = factor(victim_sex),
-    victim_race = fct_relevel(),
-    victim_age = as.numeric(victim_age)
-  ) %>%
   filter(!is.na(victim_age))
 
-baltimore_resolved = homicide %>%
-  filter(city == "Baltimore") %>%
-  glm(resolved ~ victim_age + victim_sex + victim_race, family = binomial(), data = .) %>%
-  broom::tidy() %>%
-  group_by(term, estimate) %>%
-  summarise(
-   conf.low = quantile(exp(estimate), 0.025),
-   conf.high = quantile(exp(estimate), 0.975)
-     ) %>%
-  mutate(
-    OR = exp(estimate)
-  ) %>%
-  select(OR, conf.low, conf.high) %>%
-  filter(term == "victim_raceBlack")
-
-knitr::kable(baltimore_resolved)
 ```
 
 ```{r}
@@ -57,6 +35,86 @@ knitr::kable(baltimore_resolved)
 
 
 ```
+
+
+# Problem 2 Birthweight
+
+```{r, check for missing value}
+
+birthweight = read_csv("birthweight.csv") %>%
+  janitor::clean_names() %>%
+  mutate(
+    babysex = as.factor(babysex), 
+    frace = as.factor(frace), 
+    malform = as.factor(malform), 
+    mrace = as.factor(mrace)
+)
+
+birthweight = birthweight[!apply(is.na(birthweight[1:length(birthweight)]), 1, any),]
+```
+
+   After checking all variables within the birthweight dataset, variables that are appropriate for turning into factor are all changed into the factor type. And the dataset does not contain any missing values.
+
+```{r, include=FALSE}
+step(lm(data = birthweight, bwt ~.), direction = "both")
+```
+  By using the stepwise algorithm, the optimal model would be chosen by AIC.
+  
+```{r}
+
+optimal_mod = birthweight %>%
+  select(-frace, -malform, -menarche, - momage, - pnumlbw, - pnumsga, -wtgain) %>%
+  lm(bwt ~ babysex + bhead + blength + delwt + fincome + gaweeks + mheight + mrace + 
+       parity + ppwt + smoken, data = .)
+
+birthweight %>%
+  select(-frace, -malform, -menarche, - momage, - pnumlbw, - pnumsga, -wtgain) %>%
+  modelr::add_predictions(optimal_mod) %>%
+  modelr::add_residuals(optimal_mod) %>%
+  ggplot(aes(x = pred, y = resid)) +
+  geom_point() +
+  geom_smooth(method = "lm") +
+  labs(
+    title = "Model Residuals Against Fitted Values",
+    x = "Fitted Values",
+    y = "Residuals"
+  )
+
+```
+
+```{r}
+
+blength_gaweeks = birthweight %>%
+  select(bwt, blength, gaweeks) %>%
+  lm(bwt ~ blength, gaweeks, data = .)
+
+head_len_sex = birthweight %>%
+  select(bwt, bhead, blength, babysex) %>%
+  lm(bwt ~ bhead +blength + babysex + bhead*blength*babysex, data = .)
+
+cv = crossv_mc(birthweight, 4000) %>%
+  mutate(
+    train = map(train, as_tibble),
+    test = map(test, as_tibble)
+  )
+
+cv = cv %>%
+  mutate(
+    optimal_model = map(train, ~ optimal_mod),
+    blength_gaweeks_model = map(train, ~ blength_gaweeks),
+    head_len_sex_model = map(train, ~ head_len_sex)
+  ) %>%
+  mutate(
+    rmse
+  )
+
+```
+
+
+
+
+
+
 
 
 
